@@ -766,8 +766,43 @@ for i = 1:length(rois)
 end
 
 %% RAW vs PREPROCESSED FIGURES
+%% RAW vs PREPROCESSED FIGURES
+%% Figure 1C: Raw vs Preprocessed BOLD and Pupil (dual y-axis style)
+figure('Position', [100 100 900 500], 'Color', 'w');
 
-% Ensure required variables are defined before figure section
+% % Top panel: Raw signals
+% subplot(2,1,1)
+yyaxis left
+plot(mean_bold, 'b', 'LineWidth', 1);
+ylabel('BOLD signal (a.u.)');
+
+yyaxis right
+plot(pupil, 'r', 'LineWidth', 1);
+ylabel('Pupil size (a.u.)');
+
+xlabel('Timepoint (TR)');
+% title('Raw BOLD and Pupil signals (unprocessed)');
+legend('Raw BOLD', 'Raw Pupil', 'Location', 'northeast');
+xlim([1 205]); box off;
+
+% % Bottom panel: Preprocessed signals
+% subplot(2,1,2)
+% yyaxis left
+% plot(mean_bold_clean, 'b', 'LineWidth', 1);
+% ylabel('BOLD (z-score)');
+% 
+% yyaxis right
+% plot(pupil_clean, 'r', 'LineWidth', 1);
+% ylabel('Pupil (z-score)');
+% 
+% xlabel('Timepoint (TR = 1s)');
+% title('Preprocessed: z-scored + spike removed');
+% legend('BOLD (cleaned)', 'Pupil (cleaned)', 'Location', 'northeast');
+% xlim([1 205]); box off;
+
+sgtitle('Raw BOLD and Pupil Signals');
+
+%% Ensure required variables are defined before figure section
 % mid_t: middle timepoint for raw fMRI snapshot
 if ~exist('mid_t', 'var')
     mid_t = round(size(V, 4) / 2);  % = 103 for 205 timepoints
@@ -855,3 +890,121 @@ title('Preprocessed: z-scored + spike removed');
 xlim([1 205]); box off;
 
 sgtitle('BOLD Signal: Raw vs Preprocessed');
+
+%%
+% Extract supervoxel ROI timeseries
+% Positive ROI coordinates (in supervoxel space)
+% Your original voxel coords [102,105,18] -> supervoxel coords
+sv_pos = ceil([102,105,18] ./ 2);
+sv_neg = ceil([88,98,21] ./ 2);
+
+% Extract timeseries from supervoxel data
+pos_ts = squeeze(V_ds(sv_pos(1), sv_pos(2), sv_pos(3), :));
+neg_ts = squeeze(V_ds(sv_neg(1), sv_neg(2), sv_neg(3), :));
+
+% Z-score
+pos_ts_z = (pos_ts - mean(pos_ts)) / std(pos_ts);
+neg_ts_z = (neg_ts - mean(neg_ts)) / std(neg_ts);
+
+% Lag +4 correlation
+r_pos = corrcoef(pupil_clean(1:end-4), pos_ts_z(5:end));
+r_neg = corrcoef(pupil_clean(1:end-4), neg_ts_z(5:end));
+
+%% Peak ROI scatter plots (supervoxel consistent)
+
+% Supervoxel coordinates from original voxel coords
+% Original: Positive [102,105,18], Negative [88,98,21]
+% Supervoxel space (divide by 2, round up)
+sv_pos = ceil([102,105,18] ./ 2);
+sv_neg = ceil([88,98,21] ./ 2);
+
+% Extract timeseries from supervoxel data
+pos_ts = squeeze(V_ds(sv_pos(1), sv_pos(2), sv_pos(3), :));
+neg_ts = squeeze(V_ds(sv_neg(1), sv_neg(2), sv_neg(3), :));
+
+% Z-score both timeseries
+pos_ts_z = (pos_ts - mean(pos_ts)) / std(pos_ts);
+neg_ts_z = (neg_ts - mean(neg_ts)) / std(neg_ts);
+
+% Correlation at lag +4
+C_pos = corrcoef(pupil_clean(1:end-4), pos_ts_z(5:end));
+C_neg = corrcoef(pupil_clean(1:end-4), neg_ts_z(5:end));
+r_pos = C_pos(1,2);
+r_neg = C_neg(1,2);
+
+fprintf('Supervoxel Positive ROI r = %.3f\n', r_pos)
+fprintf('Supervoxel Negative ROI r = %.3f\n', r_neg)
+
+%% Figure: Scatter plots
+x_fit = linspace(-3, 2, 100);
+
+figure('Position', [100 100 900 400], 'Color', 'w');
+
+% Positive ROI scatter
+subplot(1,2,1)
+scatter(pupil_clean(1:end-4), pos_ts_z(5:end), ...
+    20, 'r', 'filled', 'MarkerFaceAlpha', 0.4); hold on;
+p1 = polyfit(pupil_clean(1:end-4), pos_ts_z(5:end), 1);
+plot(x_fit, polyval(p1, x_fit), 'r-', 'LineWidth', 2);
+xline(0, '--k', 'Alpha', 0.3);
+yline(0, '--k', 'Alpha', 0.3);
+xlabel('Pupil size (z, lag 0)');
+ylabel('BOLD (z, lag +4s)');
+title(sprintf('Positive ROI (supervoxel)\nr = %.3f', r_pos));
+box off;
+
+% Negative ROI scatter
+subplot(1,2,2)
+scatter(pupil_clean(1:end-4), neg_ts_z(5:end), ...
+    20, 'b', 'filled', 'MarkerFaceAlpha', 0.4); hold on;
+p2 = polyfit(pupil_clean(1:end-4), neg_ts_z(5:end), 1);
+plot(x_fit, polyval(p2, x_fit), 'b-', 'LineWidth', 2);
+xline(0, '--k', 'Alpha', 0.3);
+yline(0, '--k', 'Alpha', 0.3);
+xlabel('Pupil size (z, lag 0)');
+ylabel('BOLD (z, lag +4s)');
+title(sprintf('Negative ROI (supervoxel)\nr = %.3f', r_neg));
+box off;
+
+sgtitle('Positive vs Negative Pupil-BOLD Coupling: Supervoxel ROIs', ...
+    'FontSize', 12, 'FontWeight', 'bold');
+%%
+%% Save extracted results to CSV
+
+% 1. Global BOLD-pupil correlation at each lag
+lag_results = table(lags', r_lags', ...
+    'VariableNames', {'Lag_TR', 'Pearson_r'});
+writetable(lag_results, 'bold_pupil_lag_correlation.csv');
+
+% 2. Cross-modality peak correlations summary
+modality = {'BOLD'; 'NE'; 'ACh'};
+peak_r = [max(abs(r_lags)); max(abs(r_NE)); max(abs(r_ACh))];
+peak_lag = [4; lags_sec(abs(r_NE)==max(abs(r_NE)));
+            lags_sec(abs(r_ACh)==max(abs(r_ACh)))];
+cross_modal = table(modality, peak_r, peak_lag, ...
+    'VariableNames', {'Modality', 'Peak_r', 'Peak_lag_s'});
+writetable(cross_modal, 'cross_modality_comparison.csv');
+
+% 3. ON/OFF state mean BOLD
+state_results = table({'ON'; 'OFF'}, ...
+    [mean(mean_bold_clean(on_idx)); mean(mean_bold_clean(off_idx))], ...
+    'VariableNames', {'State', 'Mean_BOLD_z'});
+writetable(state_results, 'onoff_state_bold.csv');
+
+% 4. Supervoxel t-map statistics
+tmap_stats = table({'positive'; 'negative'; 'total'}, ...
+    [sum(t_masked_z(:)>2, 'omitnan'); ...
+     sum(t_masked_z(:)<-2, 'omitnan'); ...
+     sum(abs(t_masked_z(:))>2, 'omitnan')], ...
+    'VariableNames', {'Direction', 'N_supervoxels'});
+writetable(tmap_stats, 'supervoxel_tmap_stats.csv');
+
+% 5. Peak ROI correlations
+roi_results = table(...
+    {'Positive ROI'; 'Negative ROI'}, ...
+    {[51,53,9]; [44,49,11]}, ...
+    [r_pos; r_neg], ...
+    'VariableNames', {'ROI', 'Supervoxel_coords', 'Pearson_r'});
+writetable(roi_results, 'peak_roi_correlations.csv');
+
+fprintf('All results saved to CSV files\n')
